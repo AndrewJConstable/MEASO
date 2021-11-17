@@ -1,0 +1,226 @@
+---
+title: "MEASO Space"
+by: Andrew Constable, Ben Raymond
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(raster)
+library(dplyr)
+
+```
+
+identifying the shapefile to be assigned to a grid cell
+
+https://gis.stackexchange.com/questions/88830/overlaying-spatial-polygon-with-grid-and-checking-in-which-grid-element-specific
+
+# Preparation
+
+Steps in preparation  
+- Load 2x2 km grid  
+```{r ,echoe=FALSE}
+# load 2x2 km grid 
+Seabed_file<-"/Users/andreworca/Desktop/_wAAD/_d/seabed GEBCO/GEBCO_cells_ASD_MEASO_ssmu_ssru.rds"
+Seabed_areas <- readRDS(Seabed_file)
+# give each cell an area of 2x2 km until it is available in input file
+Seabed_areas<-cbind(Seabed_areas,rep(4,nrow(Seabed_areas)))
+
+# rename variables to be consistent with code
+dimnames(Seabed_areas)[[2]]<-c("Lon","Lat","Cell","Depth","Iceshelf","MEASO","ASD","SSRU","SSMU","Area")
+
+Cbed_MEASO<-Seabed_areas[!is.na(Seabed_areas[,"MEASO"]),c("Cell","Lon","Lat","Depth","MEASO","ASD","SSMU","SSRU","Area")]
+#Cbed_MEASO[is.na(Cbed_MEASO[,"SSRU"]),"SSRU"]<-"NA"
+#Cbed_MEASO[is.na(Cbed_MEASO[,"SSMU"]),"SSMU"]<-"NA"
+
+remove(Seabed_areas)  # free up memory
+
+Cbed_cell<-Cbed_MEASO[Cbed_MEASO[,"Lat"]<= (-40),c("Lon","Lat")]
+
+```
+
+## explore pelagic regionalisation
+
+```{r, echo=FALSE}
+PR<-read.csv("pelagic_regionalisation/pelagic_cluster_20.csv") # names : longitude, latitude, cluster
+dimnames(PR)[[2]]<-c("Lon","Lat","Cluster")
+# longitudes and latitudes are by tenth degree resolution
+
+coordinates(PR) <- ~ Lon + Lat
+gridded(PR) <- TRUE
+rasterPR<-raster(PR)
+rasterPR
+plot(rasterPR)
+
+kmLongitude<-function(Lat){111.12*cos(Lat*pi/180)}  # km of one degree longitude at equator is 60/0.539957=111.12 km
+
+# from https://gis.stackexchange.com/questions/121116/how-can-i-determine-which-raster-attribute-covers-the-highest-area-of-a-polygon
+cellMode_tab <- function(x, na.rm = FALSE) {  
+    if(na.rm) x = subset(x, !is.na(x))
+    ux <- unique(x)
+    return(ux[which.max(tabulate(match(x, ux)))])
+  }    
+
+cellMode <- function(x) {  
+    res<- aggregate(x[,"weight"],by=list(Value = x[,"value"]),FUN=sum)
+    res1<-res[which(res[,"x"]==max(res[,"x"])),"Value"]
+    if(length(res1)>1) res1<-ceiling(runif(1,min=1E-10,max=1)*length(res1))
+    return(res1)
+  }    
+
+polyCell<- # returns polygon for a square cell given a central point.  length of the list equals 1.
+           # if crossing over 180/-180 then returns two polygons and the ratio in area.  length of the list is 2.
+          function(X     # longitude
+                  ,Y     # latitude
+                  ,kmRes # resolution of a cell in km
+                  ){
+  dY<-kmRes/120  # half of the decimal degree
+  Lat<-unlist(c((Y-dY),(Y+dY)))  # min, max latitude
+
+  dX_LatMin<- kmRes/kmLongitude(Lat[1])/2  # decimal longitude at min latitude
+  dX_LatMax<- kmRes/kmLongitude(Lat[2])/2  # decimal longitude at max latitude
+  Cell <- data.frame(Lon = unlist(c((X-dX_LatMin),(X+dX_LatMin),(X+dX_LatMax),(X-dX_LatMax))), Lat = Lat[c(1,1,2,2)])
+  if(max(Cell[,"Lon"])>180 | min(Cell[,"Lon"])<(-180)){
+      if(max(Cell[,"Lon"])>180){
+          Cell_1<-Cell
+          Cell_1$Lon[Cell$Lon>180]<-180
+          Cell_2<-Cell
+          Cell_2$Lon[Cell$Lon<180]<-(-180)
+          Cell_2$Lon[Cell$Lon>180]<-Cell$Lon[Cell$Lon>180]-360
+          return(list(
+                  SpatialPolygonsDataFrame(SpatialPolygons(list(
+                   Polygons(list(Polygon(Cell_1,hole=F)),1)
+                  ,Polygons(list(Polygon(Cell_2,hole=F)),2)
+                  )),data.frame(row.names=c("1","2"),ID=1:2))
+                 , ( (abs(Cell_1[2,"Lon"]-Cell_1[1,"Lon"])*kmLongitude(Cell_1[1,"Lat"]))+(abs(Cell_1[4,"Lon"]-Cell_1[3,"Lon"])*kmLongitude(Cell_1[3,"Lat"])) )/(2*kmRes)# proportion of cell that is polygon 1
+                 )) # end return
+      } else {
+          Cell_1<-Cell
+          Cell_1$Lon[Cell$Lon<(-180)]<-(-180)
+          Cell_2<-Cell
+          Cell_2$Lon[Cell$Lon>(-180)]<-180
+          Cell_2$Lon[Cell$Lon<(-180)]<-Cell$Lon[Cell$Lon<(-180)]+360
+          return(list(
+                 SpatialPolygonsDataFrame(SpatialPolygons(list(
+                   Polygons(list(Polygon(Cell_1,hole=F)),1)
+                  ,Polygons(list(Polygon(Cell_2,hole=F)),2)
+                  )),data.frame(row.names=c("1","2"),ID=1:2))
+                 ,( (abs(Cell_1[2,"Lon"]-Cell_1[1,"Lon"])*kmLongitude(Cell_1[1,"Lat"]))+(abs(Cell_1[4,"Lon"]-Cell_1[3,"Lon"])*kmLongitude(Cell_1[3,"Lat"])) )/(2*kmRes))# proportion of cell that is polygon 1
+                ) # end return
+      }
+  } else {
+  return(SpatialPolygonsDataFrame(SpatialPolygons(list(Polygons(list(Polygon(Cell,hole=F)),1))),data.frame(row.names=c("1"),ID=1)))
+  }
+  }
+
+
+fnCellVal<-function(LL,rasterPR,kmRes){
+    poly<-polyCell(LL["Lon"],LL["Lat"],kmRes)
+    if(length(poly)>1) {
+        ProportionCell_1<-poly[[2]]
+        poly<-poly[[1]]
+        res<-extract(rasterPR,poly,small=TRUE ,weights=TRUE,normalizeWeights=TRUE) # two polygons each with prop of polygon taken up by each value
+        res1<-res[[1]]
+        res1[,"weight"]<-res1[,"weight"]*ProportionCell_1
+        res2<-res[[2]]
+        res2[,"weight"]<-res2[,"weight"]*(1-ProportionCell_1)
+        res<-rbind(res1,res2)
+        
+    } else {
+      res<-extract(rasterPR,poly,small=TRUE ,weights=TRUE,normalizeWeights=TRUE) # prop of polygon taken up by each value
+      res<-res[[1]]
+    }
+      if(length(unique(res[,"value"]))==1) return(res[1,"value"])
+      return(cellMode(res))
+
+  }#end fn
+
+res1<-apply(Cbed_cell,1,fnCellVal,rasterPR,10)
+
+#res1<-apply(Cbed_cell[c(1:1),],1,fnCellVal,rasterPR,2)
+as.vector(res1)
+
+
+    res1<-bind_rows(res1)
+
+
+```
+
+# Ben Raymond's files  
+  
+  
+## Pelagic bioregionalisation
+    
+### Current regionalisation  
+  
+Available from the Australian Antarctic Data Centre:  
+https://data.aad.gov.au/metadata/records/AAS_4124_pelagic_regionalisation  
+  
+Citation: Raymond, B. (2017) A circumpolar pelagic regionalisation of the Southern Ocean, Ver. 1, Australian Antarctic Data Centre - doi:10.4225/15/59001e9382f5c, Accessed: 2020-11-20  
+  
+Description:  
+This layer is a circumpolar, pelagic regionalisation of the Southern Ocean south of 40 degrees S, based on sea surface temperature, depth, and sea ice information. The results show a series of latitudinal bands in open ocean areas, consistent with the oceanic fronts. Around islands and continents, the spatial scale of the patterns is finer, and is driven by variations in depth and sea ice.  
+  
+The processing methods follow those of Grant et al. (2006) and the CCAMLR Bioregionalisation Workshop (SC-CAMLR-XXVI 2007). Briefly, a non-hierarchical clustering algorithm was used to reduce the full set of grid cells to 250 clusters. These 250 clusters were then further refined using a hierarchical (UPGMA) clustering algorithm. The first, non-hierarchical, clustering step is an efficient way of reducing the large number of grid cells, so that the subsequent hierarchical clustering step is tractable. The hierarchical clustering algorithm produces a dendrogram, which can be used to guide the clustering process (e.g. choices of data layers and number of clusters) but is difficult to use with large data sets. Analyses were conducted in Matlab (Mathworks, Natick MA, 2011) and R (R Foundation for Statistical Computing, Vienna 2009).  
+  
+Three variables were used for the pelagic regionalisation: sea surface temperature (SST), depth, and sea ice cover. Sea surface temperature was used as a general indicator of water masses and of Southern Ocean fronts (Moore et al. 1999, Kostianoy et al. 2004). Sea surface height (SSH) from satellite altimetry is also commonly used for this purpose (e.g. Sokolov and Rintoul 2009), and may give front positions that better match those from subsurface hydrography than does SST. However, SSH data has incomplete coverage in some near-coastal areas (particularly in the Weddell and Ross seas) and so in the interests of completeness, SST was used here. During the hierarchical clustering step, singleton clusters (clusters comprised of only one datum) were merged back into their parent cluster (5 instances, in cluster groups 2, 3, 8, and 13). Additionally, two branches of the dendrogram relating to temperate shelf areas (around South America, New Zealand, and Tasmania) were merged to reduce detail in these areas (since such detail is largely irrelevant in the broader Southern Ocean context).  
+  
+### Projected regionalisation  
+  
+I will have to generate the projected regionalisation files, but bear in mind that these were only ever preliminary (and for one model only: ACCESS). If we are to use them for real we should spend some time making sure they make sense.  
+  
+  
+## Benthic bioregionalisation  
+  
+### Current regionalisation  
+  
+Available from the Australian Antarctic Data Centre:  
+https://data.aad.gov.au/metadata/records/SOBC  
+  
+Citation: Douglass, L., Beaver, D., Turner, J., Kaiser, S., Constable, A., Raymond, B., Post, A., Brandt, A., Grantham, H.S. and Nicoll, R. (2014) Southern Ocean Benthic Classification (SOBC) - ecoregions, bathomes and environmental types, Ver. 1, Australian Antarctic Data Centre - doi:10.4225/15/53A3760D4AFAA, Accessed: 2020-11-20  
+  
+Description:  
+This dataset is intended for general use in spatial planning and management to identify areas where benthic marine assemblages are likely to differ from each other in the Southern Ocean. We achieve this by using a hierarchical spatial classification of ecoregions, bathomes and environmental types. Ecoregions are defined according to available data on biogeographic patterns and environmental drivers on dispersal. Bathomes are identified according to depth strata defined by species distributions. Environmental types are uniquely classified according to the geomorphic features found within the bathomes in each ecoregion. This circum-Antarctic map of environmental types can be used to support spatial management aimed at conserving benthic biodiversity across the entire Southern Ocean.  
+  
+The study area spans the region managed by the Commission for the Conservation of Antarctic Marine Living Resources (CCAMLR). The northern boundary of this region is a line approximating the location of the Polar Front. The southern boundary was defined as the northern edge of the permanent ice shelf of the Antarctic continent.  
+  
+The shapefile can be used to identify three levels of the hierarchical classification (see Fig. 1 of Douglass et al., 2014):  
+1) Level 1: Ecoregions  
+2) Level 2b: Geomorphic features nested in each ecoregion  
+3) Level 3: Environmental Types  
+The dataset cannot be used to analyse a level 2a nesting since for some geomorphic features (e.g. seamounts and canyons) the nested bathomes were combined when generating environmental types. If a level 2a nesting is required please contact douglass.lucinda@gmail.com  
+  
+The shapefile contains ten fields:  
+EcoID- Abbreviated Level 1 benthic ecoregion names  
+Ecoregion- Level 1 benthic ecoregion names  
+Geomorph2- Geomorphic features  
+BathID- Bathome identification number which can be used to sort the depth classes  
+Bathome2 - Bathome  
+EcoGeo- Level 2b nesting of geomorphic features in each ecoregion  
+EnvTyp- Level 3 environmental types  
+GeoClsID- Geomorphic class identification number  
+GeoCls- Geomorphic classes  
+Sqkm- Area in square kilometers  
+  
+### Projected regionalisation  
+  
+  as for pelagic regionalisation  
+  
+  
+## Predator habitat importance  
+  
+### Current habitat importance  
+  
+https://data.aad.gov.au/metadata/records/SCAR_RAATD
+Citation: Hindell MA, Reisinger RR, Ropert-Coudert Y, et al (2020) Tracking of marine predators to protect Southern Ocean ecosystems, Ver. 1, Nature - doi:10.1038/s41586-020-2126-y, Accessed: 2020-11-20
+
+Description:
+We assembled tracking data from seabirds (n = 12 species) and marine mammals (n = 5 species), collected between 1991 and 2016, from across the Antarctic predator research community. See https://data.aad.gov.au/metadata/records/SCAR_EGBAMM_RAATD_2018_Standardised and https://data.aad.gov.au/metadata/records/SCAR_EGBAMM_RAATD_2018_Filtered for the tracking data. Habitat selectivity modelling was applied to these tracking data in order to identify the environmental characteristics important to each species, and to produce circum-Antarctic predictions of important geographic space for each individual species. The individual species maps were then combined to identify regions important to our full suite of species. This approach enabled us to account for incomplete tracking coverage (i.e., colonies from which no animals have been tracked) and to produce an integrated and spatially explicit assessment of areas of ecological importance across the Southern Ocean.
+
+The data attached to this metadata record include the single-species maps for Adelie, emperor, king, macaroni, and royal penguins; Antarctic and white-chinned petrels; black-browed, grey-headed, light-mantled, sooty, and wandering albatross; humpback whales; Antarctic fur seal, southern elephant seals, and crabeater and Weddell seals. The data also include the integrated maps that incorporate all species (weighted by colony size, and unweighted). See the paper and its supplementary information for full details on the modelling process and discussion of the model outputs.
+
+### Projected habitat importance
+
+Projected habitat importances were never published in their own right, but are attached. One file was corrupted, so no RCP85 projection for the ACCESS model. I will look at re-generating if needed. In this, the RAATD_AES file gives the contemporary habitat importance (1 = AES, 0 = not AES), this is the same as from the SCAR_RAATD dataset above. There maybe some differences though, I think the published SCAR_RAATD map had some filtering applied to remove isolated pixels etc.
+Then for each model and scenario there is the projected result. 1 = projected to be like current AES habitat, 0 = projected to be like current non-AES habitat.

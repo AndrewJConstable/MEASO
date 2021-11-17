@@ -1,0 +1,89 @@
+---
+title: "MEASO Areas"
+author: "Andrew Constable"
+date: "1 June 2021"
+output: 
+  bookdown::html_document2:
+    toc: true
+    toc_depth: 4
+    fig_caption: yes
+bibliography: '/Users/andreworca/Desktop/_wAAD/_r/MEASOspace/MEASOspace.bibtex'   
+
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(ggplot2)
+library(scales)
+library(png) # for grabbing dimensions of png files
+library(dplyr)
+library(raster)
+library(rgdal)
+library(maptools)
+library(sp)
+library(sf)
+library(RColorBrewer)
+library(geodist)
+library(rgeos)
+library(colorspace)
+
+# AAD packages
+library(measoshapes) # from GitHub  remotes::install_github("AustralianAntarcticDivision/measoshapes")
+library(SOmap)  #remotes::install_github("AustralianAntarcticDivision/SOmap")
+library(aceecostats) # remotes::install_github("AustralianAntarcticDivision/aceecostats")
+
+
+knitr::opts_chunk$set(echo = TRUE)
+
+
+RootDir<-'/Users/andreworca/Desktop/_wAAD/_r/MEASOspace'
+
+```
+
+# Introduction  
+
+The Marine Ecosystem Assessment for the Southern Ocean (MEASO) is the next step in region-wide understanding of the ecology of Southern Ocean ecosystems.  These studies began with the SCAR BIOMASS program in the 1980s (El Sayed, 1991), progressed through a number of initiatives in GLOBEC and IMBeR/ICED, and the most recent large-scale international endeavour was the International Polar Year of the 2000s.  The latter period generated a significant international endeavour in the Census of Antarctic Marine Life and the subsequent SCAR Biogeographic Atlas of the Southern Ocean.  MEASO is a flagship endeavour of many scientists through the IMBeR-SCAR program Integrating Climate and Ecosystem Dynamics of the Southern Ocean (ICED) and the SCAR programs, AntERA and AntECO.  
+
+This document develops two themes of spatial assessment:
+i) general differences in the underlying attributes of ecosystems around the Southern Ocean, following considerations in Constable et al 2014 & Brasier et al 2019.
+ii) changes in habitats, following Trebilco et al 2017
+
+# Assessment areas
+
+The Southern Ocean is divided into sectors and zones for summarising status and trends of important variables.  The scale of these areas is intended to be able to report on change in ecosystem properties (Constable et al 2016) of importance to the general public and policy makers. 
+
+Two versions of assessment areas have been used in the course of developing MEASO:
+* MEASOareas2014, published in Constable et al 2014
+* MEASOareas2020, developed following a MEASO planning meeting in 2019.
+
+The later revision takes fuller account of the spatial differentiation of ecosystems, particularly in that part of the Southern Ocean around East Antartica, which has now been divided into two sectors.  
+
+```{r ,echo=FALSE}
+# plot the main figure, including the continental shelf.  
+# include the outline the first areas (not including the shelf)
+
+# using measoshapes
+# https://github.com/AustralianAntarcticDivision/measoshapes
+
+
+```
+
+For MEASO, the Southern Ocean is divided into 15 areas based on 5 sectors (Atlantic, Central Indian, East Indian, West Pacific, East Pacific) and 3 zones (Antarctic, Subantarctic, Northern).  This is an update from the original approach developed in Constable et al (2014, 2016), which was used as the basis for analyses in Trebilco et al (2019) and Brasier et al (2019).  The original approach had 4 sectors (Atlantic, Indan, West Pacific, East Pacific) with 3 sectors (Polar, High Latitude, Mid Latitude).
+
+outline why we chose fixed areas and the rationale for the fronts and sector boundaries.
+
+
+The original analyses were developed in the R package, aceecostats, which was developed by Mike Sumner at the Australian Antarctic Division  (https://github.com/AustralianAntarcticDivision/aceecostats).  The original areas are available in aceecostats in the object **aes_region** and variants thereof.  **aes_region** is a SpatialPolygonsDataFrame with 19 features, each having 8 variables:
+ID, BathyClass, SectorName, Zone, Name, Shelf, area_km2, colour
+
+The first task here saves **aes_region** as **aes_region_2014** and creates a new **aes_region** based on the MEASO shapefiles found in the library **measoshapes**.  
+
+A description of the purpose and capability of MEASOshapes can be found at https://github.com/AustralianAntarcticDivision/measoshapes.
+
+A number of refinements were to the package, in order to facilitate the MEASO 2020 assessment.
+...
+
+
+ 
+# References    
+.     
