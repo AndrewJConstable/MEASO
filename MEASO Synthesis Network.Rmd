@@ -1,0 +1,17 @@
+---
+title: "MEASO Synthesis Network"
+author: "Andrew Constable"
+date: "17/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(igraph)
+library(ggplot2)
+
+```
+
+The MEASO Synthesis Network aims to show a typology of different networks in different parts of the Southern Ocean.
+
